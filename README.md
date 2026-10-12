@@ -35,9 +35,15 @@ The key selector must be an absolute HTTPS URL with a host and no userinfo. It i
 | Exact leakage | Identical file bytes in different splits | Transformations of the same underlying source can evade exact-byte comparison |
 | Group leakage | One supplied `group_id` in different splits | Only as complete as the supplied group IDs |
 | Temporal boundary | Train captures before, evaluation captures at/after the declared UTC epoch | Not evaluated when no boundary is supplied; capture times are not independently authenticated |
-| ODD bins | Evaluation sample counts, threshold gaps, and unknown/missing values | Bin labels are not machine-bound to the aviation card's `odd.operating_conditions`; counts do not prove representativeness, statistical adequacy, or operational safety |
+| ODD bins | Distinct observed file hashes per bin, threshold gaps, and unknown/missing values | Different hashes do not prove independent acquisition. Bin labels are not machine-bound to the aviation card's `odd.operating_conditions`; counts do not prove representativeness, statistical adequacy, or operational safety |
 
 This is a proposed input and report format for a Suite aviation extension. The optional aviation MCP tools can reference its report as evidence, but the current MCP ODD check only checks declared card fields and references; it does not independently rerun this CLI or certify coverage.
+
+### Report version 0.2.0
+
+`analyze` now emits `report_version: "0.2.0"`. Each bin's `evaluation_samples` counts distinct observed SHA-256 file hashes among validation and test rows, so repeating the same bytes under new IDs, paths, or group IDs cannot meet a larger minimum. Assigning identical bytes to conflicting bins of one dimension within the same evaluation split is an input error. Identical bytes across splits remain a leakage finding. `evaluation_sample_count` remains the raw number of validation and test manifest rows. Distinct bytes are a conservative counting rule, not proof of independent acquisition, labels, or adequate coverage.
+
+This changes the meaning of `evaluation_samples` from report v0.1.0. `verify_report` still verifies historical v0.1.0 signatures for archival use; `sign_report` accepts only v0.2.0. The `verify` CLI labels the report version and whether it uses the distinct-byte count profile. Consumers making a coverage decision must require report v0.2.0 and re-analyze the referenced dataset. A signed v0.1.0 report can have a passing threshold inflated by repeated same-split bytes. The manifest remains v0.1.0.
 
 ## Verify changes
 
@@ -47,6 +53,6 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
 ```
 
-The repository CI runs these checks plus the positive CLI fixture. Negative fixtures in `tests/analysis.rs` cover exact/group/temporal leakage, ODD gaps, unsafe paths, duplicate JSON keys, report tampering, signed metadata tampering, and invalid or wrong expected key URLs. CLI tests also cover oversized inputs.
+The repository CI runs these checks plus the positive CLI fixture. Negative fixtures in `tests/analysis.rs` cover exact/group/temporal leakage, repeated evaluation bytes, ODD gaps, unsafe paths, duplicate JSON keys, report tampering, signed metadata tampering, and invalid or wrong expected key URLs. CLI tests also cover oversized inputs.
 
 See [origin and limits](docs/ORIGIN.md). Licensed MIT.
