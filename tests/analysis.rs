@@ -1,6 +1,9 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Barrier};
+
+mod common;
 
 use aero_dataset_provenance::{analyze, sign_report, verify_report};
 use ed25519_dalek::SigningKey;
@@ -11,15 +14,7 @@ struct Dataset {
 }
 impl Dataset {
     fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "aero-provenance-test-{}-{unique}",
-            std::process::id()
-        ));
-        fs::create_dir(&root).unwrap();
+        let root = common::create_unique_temp_dir("aero-provenance-test");
         fs::write(root.join("train.txt"), b"synthetic train observation").unwrap();
         fs::write(root.join("val.txt"), b"synthetic validation observation").unwrap();
         fs::write(root.join("test.txt"), b"synthetic test observation").unwrap();
@@ -33,6 +28,31 @@ impl Drop for Dataset {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn concurrent_dataset_fixtures_have_distinct_directories() {
+    const WORKERS: usize = 32;
+    let barrier = Arc::new(Barrier::new(WORKERS));
+    let handles: Vec<_> = (0..WORKERS)
+        .map(|_| {
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                Dataset::new()
+            })
+        })
+        .collect();
+    let mut roots = HashSet::new();
+    let datasets: Vec<_> = handles
+        .into_iter()
+        .map(|handle| {
+            let dataset = handle.join().unwrap();
+            assert!(roots.insert(dataset.root.clone()));
+            dataset
+        })
+        .collect();
+    assert_eq!(datasets.len(), WORKERS);
 }
 
 fn manifest() -> Value {

@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+mod common;
 
 use aero_dataset_provenance::MAX_MANIFEST_BYTES;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -11,14 +12,7 @@ use serde_json::{json, Value};
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("aero-cli-test-{}-{unique}", std::process::id()));
-        fs::create_dir(&path).unwrap();
-        Self(path)
+        Self(common::create_unique_temp_dir("aero-cli-test"))
     }
 }
 impl Drop for Scratch {
