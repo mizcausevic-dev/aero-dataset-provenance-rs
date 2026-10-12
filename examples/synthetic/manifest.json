@@ -1,0 +1,12 @@
+{
+  "manifest_version": "0.1.0",
+  "dataset_id": "SYNTHETIC-ODD-DEMO",
+  "odd_bins": { "lighting": ["day", "night"] },
+  "minimum_evaluation_samples_per_bin": 1,
+  "temporal_train_before_epoch_s": 200,
+  "samples": [
+    { "id": "train-1", "path": "train.txt", "split": "train", "group_id": "synthetic-unit-1", "captured_at_epoch_s": 100, "odd_values": { "lighting": "day" } },
+    { "id": "val-1", "path": "val.txt", "split": "validation", "group_id": "synthetic-unit-2", "captured_at_epoch_s": 200, "odd_values": { "lighting": "day" } },
+    { "id": "test-1", "path": "test.txt", "split": "test", "group_id": "synthetic-unit-3", "captured_at_epoch_s": 300, "odd_values": { "lighting": "night" } }
+  ]
+}

@@ -1,0 +1,31 @@
+name: Verify dataset provenance tool
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2, Node 24
+      - name: Install the declared minimum Rust toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+          rustup default 1.88.0
+          rustc --version
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets
+      - name: Positive CLI fixture
+        run: cargo run --locked -- analyze examples/synthetic/manifest.json "$PWD/examples/synthetic" /tmp/aero-report.json
+      - name: Inspect report boundaries
+        run: |
+          python - <<'PY'
+          import json
+          report=json.load(open('/tmp/aero-report.json', encoding='utf-8'))
+          assert report['declared_checks_passed'] is True
+          assert report['evaluation_sample_count'] == 2
+          assert report['temporal_policy_evaluated'] is True
+          assert report['limitations']
+          PY
