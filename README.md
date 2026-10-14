@@ -2,6 +2,8 @@
 
 An offline Rust CLI that hashes a declared dataset snapshot, checks exact-file and acquisition-group leakage across train/validation/test splits, tests a declared UTC split boundary, and counts evaluation samples against declared operational design domain (ODD) bins. It emits deterministic JSON that can be signed with the published [`hash-attestation` v0.2](https://crates.io/crates/hash-attestation) format.
 
+**Dependency:** this draft pins the published `hash-attestation` 0.2.1 crate from crates.io. `Cargo.lock` records the registry source and checksum. Review the dependency and this tool together before any Aero release.
+
 **Status:** draft engineering aid. A passing report is not proof of dataset origin, usage rights, label quality, representative coverage, aviation certification, or airworthiness approval. The tool does not inspect model behavior. All included data are synthetic text fixtures, not aircraft records.
 
 ## Run the synthetic fixture

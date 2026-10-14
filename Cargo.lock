@@ -188,9 +188,9 @@ dependencies = [
 
 [[package]]
 name = "hash-attestation"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "369e1e37596e5c5346a420f46e84120ff8421e3f1d99991bbbb5483ae9751f33"
+checksum = "ecfcfe883b559e93b488c25990ef17c061fb2e307eedda688fe64d9a38b233be"
 dependencies = [
  "base64",
  "ed25519-dalek",
