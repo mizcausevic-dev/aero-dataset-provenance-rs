@@ -1,24 +1,19 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use aero_dataset_provenance::MAX_MANIFEST_BYTES;
+mod common;
+
+use aero_dataset_provenance::{MAX_MANIFEST_BYTES, REPORT_VERSION};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use ed25519_dalek::SigningKey;
+use hash_attestation::Attestor;
 use serde_json::{json, Value};
 
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("aero-cli-test-{}-{unique}", std::process::id()));
-        fs::create_dir(&path).unwrap();
-        Self(path)
+        Self(common::create_unique_temp_dir("aero-cli-test"))
     }
 }
 impl Drop for Scratch {
@@ -45,6 +40,7 @@ fn cli_analyze_sign_verify_and_failure_exit_are_observable() {
     assert_eq!(status.code(), Some(0));
     let parsed: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
     assert_eq!(parsed["declared_checks_passed"], true);
+    assert_eq!(parsed["report_version"], REPORT_VERSION);
 
     let key = SigningKey::from_bytes(&[7u8; 32]); // generated in memory for this synthetic test
     let url = "https://example.invalid/keys/synthetic";
@@ -69,9 +65,36 @@ fn cli_analyze_sign_verify_and_failure_exit_are_observable() {
         .output()
         .unwrap();
     assert_eq!(verified.status.code(), Some(0));
-    assert!(String::from_utf8(verified.stdout)
-        .unwrap()
-        .contains("key_identity_verified=false"));
+    let verification_output = String::from_utf8(verified.stdout).unwrap();
+    assert!(verification_output.contains("report_version=0.2.0"));
+    assert!(verification_output.contains("distinct_odd_count_profile=true"));
+    assert!(verification_output.contains("key_identity_verified=false"));
+
+    let legacy_report = scratch.0.join("legacy-report.json");
+    let legacy_signature = scratch.0.join("legacy-report.sig.json");
+    let mut legacy = parsed.clone();
+    legacy["report_version"] = json!("0.1.0");
+    let raw_legacy = legacy.to_string();
+    fs::write(&legacy_report, &raw_legacy).unwrap();
+    let detached = Attestor::new(SigningKey::from_bytes(&[7u8; 32]), url.into())
+        .sign_raw_json(&raw_legacy)
+        .unwrap();
+    fs::write(&legacy_signature, serde_json::to_vec(&detached).unwrap()).unwrap();
+    let legacy_verified = Command::new(binary)
+        .args(["verify"])
+        .arg(&legacy_report)
+        .arg(&legacy_signature)
+        .arg(url)
+        .env(
+            "AERO_DATASET_VERIFYING_KEY_B64",
+            B64.encode(key.verifying_key().to_bytes()),
+        )
+        .output()
+        .unwrap();
+    assert_eq!(legacy_verified.status.code(), Some(0));
+    let legacy_output = String::from_utf8(legacy_verified.stdout).unwrap();
+    assert!(legacy_output.contains("report_version=0.1.0"));
+    assert!(legacy_output.contains("distinct_odd_count_profile=false"));
 
     let mut bad_manifest: Value = serde_json::from_slice(&fs::read(fixture).unwrap()).unwrap();
     bad_manifest["samples"][2]["group_id"] = json!("synthetic-unit-1");

@@ -18,6 +18,9 @@ use url::Url;
 pub const MAX_SAMPLES: usize = 10_000;
 pub const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
 pub const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
+/// Report semantics with distinct observed file hashes per ODD bin.
+pub const REPORT_VERSION: &str = "0.2.0";
+const LEGACY_REPORT_VERSION: &str = "0.1.0";
 
 #[derive(Debug)]
 pub struct Error(pub String);
@@ -94,6 +97,8 @@ pub struct TemporalViolation {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BinObservation {
     pub bin: String,
+    /// Distinct observed file hashes in validation and test for this bin.
+    /// Different hashes do not establish independent acquisition.
     pub evaluation_samples: u32,
     pub meets_declared_minimum: bool,
 }
@@ -112,6 +117,7 @@ pub struct Report {
     pub dataset_id: String,
     pub manifest_jcs_sha256: String,
     pub sample_count: usize,
+    /// Validation and test manifest rows before exact-byte de-duplication.
     pub evaluation_sample_count: usize,
     pub samples: Vec<SampleRecord>,
     pub leakage_findings: Vec<LeakageFinding>,
@@ -256,7 +262,8 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
     let mut exact: BTreeMap<String, Vec<(String, Split)>> = BTreeMap::new();
     let mut groups: BTreeMap<String, Vec<(String, Split)>> = BTreeMap::new();
     let mut temporal_violations = Vec::new();
-    let mut counts: BTreeMap<(String, String), u32> = BTreeMap::new();
+    let mut counts: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    let mut observed_bins: BTreeMap<(Split, String, String), String> = BTreeMap::new();
     let mut unknowns: BTreeMap<String, u32> = BTreeMap::new();
     let mut evaluation_count = 0usize;
 
@@ -285,7 +292,7 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
             id: sample.id.clone(),
             path: sample.path.clone(),
             split: sample.split,
-            sha256: digest,
+            sha256: digest.clone(),
             byte_length,
         });
 
@@ -309,9 +316,18 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
             for (dimension, bins) in &manifest.odd_bins {
                 match sample.odd_values.get(dimension) {
                     Some(value) if bins.contains(value) => {
-                        *counts
+                        let observed = observed_bins
+                            .entry((sample.split, dimension.clone(), digest.clone()))
+                            .or_insert_with(|| value.clone());
+                        if observed != value {
+                            return Err(fail(format!(
+                                "identical same-split evaluation bytes have conflicting ODD bins in {dimension}"
+                            )));
+                        }
+                        counts
                             .entry((dimension.clone(), value.clone()))
-                            .or_default() += 1
+                            .or_default()
+                            .insert(digest.clone());
                     }
                     _ => *unknowns.entry(dimension.clone()).or_default() += 1,
                 }
@@ -345,7 +361,13 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
         let observations: Vec<BinObservation> = bins
             .iter()
             .map(|bin| {
-                let count = *counts.get(&(dimension.clone(), bin.clone())).unwrap_or(&0);
+                // MAX_SAMPLES bounds the number of unique hashes to 10,000.
+                let count = u32::try_from(
+                    counts
+                        .get(&(dimension.clone(), bin.clone()))
+                        .map_or(0, BTreeSet::len),
+                )
+                .expect("distinct hash count is bounded by MAX_SAMPLES");
                 BinObservation {
                     bin: bin.clone(),
                     evaluation_samples: count,
@@ -366,7 +388,7 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
     let declared_checks_passed =
         leakage_findings.is_empty() && temporal_violations.is_empty() && bins_meet_minimum;
     Ok(Report {
-        report_version: "0.1.0".into(),
+        report_version: REPORT_VERSION.into(),
         dataset_id: manifest.dataset_id,
         manifest_jcs_sha256: canonical_hash_jcs(&value).map_err(|e| fail(e.to_string()))?,
         sample_count: records.len(),
@@ -379,7 +401,7 @@ pub fn analyze(manifest_json: &str, dataset_root: &Path) -> Result<Report, Error
         declared_checks_passed,
         limitations: vec![
             "Hashes bind observed bytes, not dataset origin, rights, label quality, or completeness.".into(),
-            "ODD counts are observations against declared bins and minimums; bin labels are not machine-bound to aviation-card operating conditions. They do not establish statistical representativeness or airworthiness approval.".into(),
+            "ODD bin counts use distinct observed file hashes, not manifest rows; different hashes do not prove independent acquisition. Bin labels are not machine-bound to aviation-card operating conditions, and counts do not establish statistical representativeness or airworthiness approval.".into(),
             "Group leakage is limited to supplied pseudonymous group_id values; temporal leakage is evaluated only when a boundary is declared.".into(),
             "File replacement during analysis is not prevented; operate on an immutable snapshot for release evidence.".into(),
         ],
@@ -394,7 +416,7 @@ pub fn sign_report(
     key_url: &str,
 ) -> Result<Attestation, Error> {
     validate_key_url(key_url)?;
-    validate_report_json(report_json)?;
+    validate_report_json(report_json, false)?;
     Attestor::new(signing_key, key_url.into())
         .sign_raw_json(report_json)
         .map_err(|e| fail(e.to_string()))
@@ -408,7 +430,7 @@ pub fn verify_report(
     verifying_key: VerifyingKey,
 ) -> Result<(), Error> {
     validate_key_url(expected_key_url)?;
-    validate_report_json(report_json)?;
+    validate_report_json(report_json, true)?;
     if attestation.hash_profile.as_deref() != Some(JCS_HASH_PROFILE) {
         return Err(fail("legacy or unsupported signature profile"));
     }
@@ -447,7 +469,7 @@ fn validate_key_url(key_url: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_report_json(raw: &str) -> Result<(), Error> {
+fn validate_report_json(raw: &str, allow_legacy: bool) -> Result<(), Error> {
     if raw.len() > MAX_MANIFEST_BYTES {
         return Err(fail("report exceeds 8 MiB"));
     }
@@ -455,7 +477,9 @@ fn validate_report_json(raw: &str) -> Result<(), Error> {
         parse_jcs_json_strict(raw).map_err(|e| fail(format!("invalid strict report JSON: {e}")))?;
     let report: Report =
         serde_json::from_value(value).map_err(|e| fail(format!("invalid report: {e}")))?;
-    if report.report_version != "0.1.0" {
+    if report.report_version != REPORT_VERSION
+        && (!allow_legacy || report.report_version != LEGACY_REPORT_VERSION)
+    {
         return Err(fail("unsupported report_version"));
     }
     Ok(())

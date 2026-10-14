@@ -4,7 +4,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
-use aero_dataset_provenance::{analyze, sign_report, verify_report, MAX_MANIFEST_BYTES};
+use aero_dataset_provenance::{
+    analyze, sign_report, verify_report, Report, MAX_MANIFEST_BYTES, REPORT_VERSION,
+};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hash_attestation::Attestation;
@@ -73,8 +75,11 @@ fn run() -> Result<i32, Box<dyn Error>> {
             let public_bytes = key_from_env("AERO_DATASET_VERIFYING_KEY_B64")?;
             let public_key = VerifyingKey::from_bytes(&public_bytes)?;
             verify_report(&raw, &attestation, &args[4], public_key)?;
+            let report: Report = serde_json::from_str(&raw)?;
+            let version = report.report_version;
             println!(
-                "signature_valid=true; key_identity_verified=false; certification_verified=false"
+                "signature_valid=true; report_version={version}; distinct_odd_count_profile={}; key_identity_verified=false; certification_verified=false",
+                version == REPORT_VERSION
             );
             Ok(0)
         }
