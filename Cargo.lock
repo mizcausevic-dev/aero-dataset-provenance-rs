@@ -189,7 +189,7 @@ dependencies = [
 [[package]]
 name = "hash-attestation"
 version = "0.2.1"
-source = "git+https://github.com/mizcausevic-dev/hash-attestation-rs?rev=f45d36b10718745f4d8e6dd78a0a19ba9e6d439c#f45d36b10718745f4d8e6dd78a0a19ba9e6d439c"
+source = "git+https://github.com/mizcausevic-dev/hash-attestation-rs?rev=ba720e06e1f6b37e6d603a74fef6623a0d1b3c56#ba720e06e1f6b37e6d603a74fef6623a0d1b3c56"
 dependencies = [
  "base64",
  "ed25519-dalek",
