@@ -10,7 +10,7 @@ repository = "https://github.com/mizcausevic-dev/aero-dataset-provenance-rs"
 [dependencies]
 base64 = "=0.22.1"
 ed25519-dalek = "=2.2.0"
-hash-attestation = { version = "=0.2.1", git = "https://github.com/mizcausevic-dev/hash-attestation-rs", rev = "ba720e06e1f6b37e6d603a74fef6623a0d1b3c56" }
+hash-attestation = "=0.2.1"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 sha2 = "=0.10.9"
